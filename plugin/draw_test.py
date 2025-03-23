@@ -23,7 +23,7 @@ class DrawTestNode(omui2.MPxLocatorNode):
     aDrawEnable         = None
     aSelectedColor      = None
     aXray               = None
-    
+
     aDrawCircleList     = None
     aDrawCircle         = None
     aParentIndex        = None
@@ -31,8 +31,10 @@ class DrawTestNode(omui2.MPxLocatorNode):
     aPosition           = None
     aRadius             = None
     aInnerSize          = None
+    aOuterSize          = None
     aSubdivisions       = None
-    aColor              = None
+    aInnerColor         = None
+    aOuterColor         = None
     aOpacity            = None
     
     aDrawText           = None
@@ -115,6 +117,12 @@ class DrawTestNode(omui2.MPxLocatorNode):
         fnNumericAttr.setMin(0.0)
         fnNumericAttr.setSoftMax(1.0)
         DrawTestNode.addAttribute(DrawTestNode.aInnerSize)
+        
+        # アウターの半径割合
+        DrawTestNode.aOuterSize = fnNumericAttr.create("outerSize", "os", om2.MFnNumericData.kFloat, 0.9)
+        fnNumericAttr.setMin(0.0)
+        fnNumericAttr.setSoftMax(1.0)
+        DrawTestNode.addAttribute(DrawTestNode.aOuterSize)
 
         # サブディビジョン
         DrawTestNode.aSubdivisions = fnNumericAttr.create("subdivisions", "sd", om2.MFnNumericData.kInt, 32)
@@ -123,10 +131,16 @@ class DrawTestNode(omui2.MPxLocatorNode):
         DrawTestNode.addAttribute(DrawTestNode.aSubdivisions)
 
         # カラー
-        DrawTestNode.aColor = fnNumericAttr.create("color", "col", om2.MFnNumericData.k3Float)
-        fnNumericAttr.default = (1.0, 0.0, 0.0)
+        DrawTestNode.aInnerColor = fnNumericAttr.create("innerColor", "ico", om2.MFnNumericData.k3Float)
+        fnNumericAttr.default = (0.0, 1.0, 1.0)
         fnNumericAttr.usedAsColor = True
-        DrawTestNode.addAttribute(DrawTestNode.aColor)
+        DrawTestNode.addAttribute(DrawTestNode.aInnerColor)
+        
+        # カラー
+        DrawTestNode.aOuterColor = fnNumericAttr.create("outerColor", "oco", om2.MFnNumericData.k3Float)
+        fnNumericAttr.default = (0.5, 0.5, 0.5)
+        fnNumericAttr.usedAsColor = True
+        DrawTestNode.addAttribute(DrawTestNode.aOuterColor)
         
         # 不透明度
         DrawTestNode.aOpacity = fnNumericAttr.create("opacity", "o", om2.MFnNumericData.kFloat, 1.0)
@@ -177,8 +191,10 @@ class DrawTestNode(omui2.MPxLocatorNode):
         fnCompAttr.addChild(DrawTestNode.aPosition)
         fnCompAttr.addChild(DrawTestNode.aRadius)
         fnCompAttr.addChild(DrawTestNode.aInnerSize)
+        fnCompAttr.addChild(DrawTestNode.aOuterSize)
         fnCompAttr.addChild(DrawTestNode.aSubdivisions)
-        fnCompAttr.addChild(DrawTestNode.aColor)
+        fnCompAttr.addChild(DrawTestNode.aInnerColor)
+        fnCompAttr.addChild(DrawTestNode.aOuterColor)
         fnCompAttr.addChild(DrawTestNode.aOpacity)
         fnCompAttr.addChild(DrawTestNode.aDrawText)
         fnCompAttr.addChild(DrawTestNode.aText)
@@ -193,10 +209,15 @@ class DrawTestData(om2.MUserData):
     def __init__(self):
         om2.MUserData.__init__(self, False)
         self.xray                   = False
-        self.circle_colors          = []
-        self.circle_triangle_points = []
+        
+        self.circle_inner_colors    = []
+        self.circle_outer_colors    = []
+        self.circle_inner_triangles = []
+        self.circle_outer_triangles = []
+        
         self.parent_triangle_points = []
         self.parent_triangle_colors = []
+        
         self.text                   = []
         self.text_size              = []
         self.text_position          = []
@@ -227,7 +248,6 @@ class DrawTest(omr2.MPxDrawOverride):
 
         # バウンディングボックスを初期化
         bbox = om2.MBoundingBox()
-
         for i in range(draw_circle_list_plug.numElements()):
             num_plug = draw_circle_list_plug.elementByPhysicalIndex(i)
 
@@ -239,7 +259,7 @@ class DrawTest(omr2.MPxDrawOverride):
             # ローカル座標をワールド座標に変換
             pos_obj = num_plug.child(DrawTestNode.aPosition).asMObject()
             local_pos = om2.MPoint(om2.MFnNumericData(pos_obj).getData())
-            position = local_pos * world_matrix  # ワールド座標
+            position = local_pos * world_matrix
 
             # 半径を取得
             radius = num_plug.child(DrawTestNode.aRadius).asFloat()
@@ -251,9 +271,7 @@ class DrawTest(omr2.MPxDrawOverride):
             # バウンディングボックスを拡張
             bbox.expand(min_point)
             bbox.expand(max_point)
-            
         return bbox
-        # return om2.MBoundingBox(om2.MPoint(1000.0, 1000.0, 1000.0), om2.MPoint(-1000.0, -1000.0, -1000.0))
 
     def hasUIDrawables(self):
         return True
@@ -267,14 +285,14 @@ class DrawTest(omr2.MPxDrawOverride):
         if node.isNull():
             return None
         
-        fnNode = om2.MFnDependencyNode(node)
+        fn_node = om2.MFnDependencyNode(node)
         # 描画の有効化
-        draw_enable = fnNode.findPlug(DrawTestNode.aDrawEnable, False).asBool()
+        draw_enable = fn_node.findPlug(DrawTestNode.aDrawEnable, False).asBool()
         if not draw_enable:
             return None
         
         # 選択の描画
-        selected_value = fnNode.findPlug(DrawTestNode.aSelectedColor, False).asBool()
+        selected_value = fn_node.findPlug(DrawTestNode.aSelectedColor, False).asBool()
         # 選択されているか判定用
         is_selected = False
         if selected_value:
@@ -288,18 +306,20 @@ class DrawTest(omr2.MPxDrawOverride):
                 is_selected = True
         
         # xRay有効化
-        xray_value = fnNode.findPlug(DrawTestNode.aXray, False).asBool()
+        xray_value = fn_node.findPlug(DrawTestNode.aXray, False).asBool()
         data.xray = xray_value
         
         # サークル描画配列
-        draw_circle_list_plug = fnNode.findPlug(DrawTestNode.aDrawCircleList, False)
+        draw_circle_list_plug = fn_node.findPlug(DrawTestNode.aDrawCircleList, False)
         # 親子関係用の値
-        draw_indices            = []
-        world_positions         = {}
-        outer_radiuses          = {}
+        circle_indices          = []
+        circle_center_points    = {}
+        circle_radius           = {}
         # 配列の値
-        color_values            = []
-        triangle_points_values  = []
+        color_inner_values      = []
+        color_outer_values      = []
+        inner_triangles_values  = []
+        outer_triangles_values = []
         text_values             = []
         text_size_values        = []
         text_position_values    = []
@@ -319,23 +339,31 @@ class DrawTest(omr2.MPxDrawOverride):
             
             # 円のアトリビュートから値を取得
             pos_obj = num_plug.child(DrawTestNode.aPosition).asMObject()
-            local_pos = om2.MPoint(om2.MFnNumericData(pos_obj).getData())
-            position = local_pos * world_matrix
+            local_position = om2.MPoint(om2.MFnNumericData(pos_obj).getData())
+            position = local_position * world_matrix
             
-            outer_radius = num_plug.child(DrawTestNode.aRadius).asFloat()
-            inner_radius =  outer_radius * num_plug.child(DrawTestNode.aInnerSize).asFloat()
+            radius = num_plug.child(DrawTestNode.aRadius).asFloat()
+            inner_radius =  radius * num_plug.child(DrawTestNode.aInnerSize).asFloat()
+            outer_radius =  radius * num_plug.child(DrawTestNode.aOuterSize).asFloat()
             subdivisions = num_plug.child(DrawTestNode.aSubdivisions).asInt()
-            
+  
             # 親子関係用の値を格納
-            draw_indices.append(i)
-            world_positions[i] = position
-            outer_radiuses[i] = outer_radius
+            circle_indices.append(i)
+            circle_center_points[i] = position
+            circle_radius[i] = radius
             
             if is_selected:
-                color_values.append(selected_color)
+                color_inner_values.append(selected_color)
             else:
-                color_obj = num_plug.child(DrawTestNode.aColor).asMObject()
-                color_values.append(om2.MColor(om2.MFnNumericData(color_obj).getData()))
+                color_obj = num_plug.child(DrawTestNode.aInnerColor).asMObject()
+                color = om2.MColor(om2.MFnNumericData(color_obj).getData())
+                color.a = num_plug.child(DrawTestNode.aOpacity).asFloat()
+                color_inner_values.append(color)
+                
+                color_obj = num_plug.child(DrawTestNode.aOuterColor).asMObject()
+                color = om2.MColor(om2.MFnNumericData(color_obj).getData())
+                color.a = num_plug.child(DrawTestNode.aOpacity).asFloat()
+                color_outer_values.append(color)
             
             # テキストの描画
             draw_text = num_plug.child(DrawTestNode.aDrawText).asBool()
@@ -352,23 +380,23 @@ class DrawTest(omr2.MPxDrawOverride):
                     text_color_values.append(selected_color)
                 else:
                     text_color_obj = num_plug.child(DrawTestNode.aTextColor).asMObject()
-                    text_color_values.append(om2.MColor(om2.MFnNumericData(text_color_obj).getData()))
+                    text_color = om2.MColor(om2.MFnNumericData(text_color_obj).getData())
+                    text_color.a = num_plug.child(DrawTestNode.aTextOpacity).asFloat()
+                    text_color_values.append(text_color)
 
-            # 円の描画するための三角形の座標を取得
             # カメラの位置を取得
-            cam_matrix = cameraPath.inclusiveMatrix()
-            cam_position = om2.MPoint(cam_matrix[12], cam_matrix[13], cam_matrix[14])  # カメラのワールド座標
+            camera_matrix = cameraPath.inclusiveMatrix()
+            camera_position = om2.MPoint(camera_matrix[12], camera_matrix[13], camera_matrix[14])
 
             # カメラへの方向ベクトルを計算
-            to_camera = cam_position - position
+            to_camera = camera_position - position
             to_camera.normalize()
 
-            # Y軸をカメラ方向に向けるためのベクトル計算
-            up_vector = to_camera  # Y軸をカメラの方向に合わせる
-            right_vector = om2.MVector(0, 0, 1) ^ up_vector  # ワールドZ軸とY軸の外積 → 右方向
+            # カメラ方向に向けるためのベクトル計算
+            up_vector = to_camera
+            right_vector = om2.MVector(0, 0, 1) ^ up_vector
             right_vector.normalize()
-
-            forward_vector = up_vector ^ right_vector  # 右方向とY軸の外積 → 前方向
+            forward_vector = up_vector ^ right_vector
             forward_vector.normalize()
 
             # カメラ基準の回転行列作成
@@ -379,189 +407,155 @@ class DrawTest(omr2.MPxDrawOverride):
                 0, 0, 0, 1
             ])
 
-            # 頂点データ（カメラ方向に回転）
-            vertices = []
-            indices = []
-            outer_points = []
+            # カメラの向きで円の頂点座標を取得
+            circle_points = []
+            circle_points2 = []
             position = om2.MVector(position)
             for x in range(subdivisions):
                 theta = (x / subdivisions) * 2.0 * math.pi
                 local_outer = om2.MVector(outer_radius * math.cos(theta), 0, outer_radius * math.sin(theta))
-                local_inner = om2.MVector(inner_radius * math.cos(theta), 0, inner_radius * math.sin(theta))
 
-                # 回転行列を適用
-                world_outer = local_outer * rot_matrix + position
-                world_inner = local_inner * rot_matrix + position
+                world_center = local_outer * rot_matrix + position
 
-                outer_points.append((world_outer.x, world_outer.y, world_outer.z))
-                vertices.append((world_outer.x, world_outer.y, world_outer.z, 1.0))
-                vertices.append((world_inner.x, world_inner.y, world_inner.z, 1.0))
-
-            # インデックスデータ（トライアングルストリップ用）
+                # 内側の円の範囲制限
+                if inner_radius < outer_radius and inner_radius < radius:
+                    local_inner = om2.MVector(inner_radius * math.cos(theta), 0, inner_radius * math.sin(theta))
+                    world_inner = local_inner * rot_matrix + position
+                    circle_points.append((world_center.x, world_center.y, world_center.z, 1.0))
+                    circle_points.append((world_inner.x, world_inner.y, world_inner.z, 1.0))
+                
+                # 外側の円の範囲制限
+                if outer_radius < radius:
+                    local = om2.MVector(radius * math.cos(theta), 0, radius * math.sin(theta))
+                    world_outer = local * rot_matrix + position
+                    circle_points2.append((world_outer.x, world_outer.y, world_outer.z, 1.0))
+                    circle_points2.append((world_center.x, world_center.y, world_center.z, 1.0))
+                    
+                
+            # 円の三角形の座標で並べる
+            triangle_points = []
+            triangle_points2 = []
             for x in range(subdivisions):
                 idx1 = x * 2
                 idx2 = (x * 2 + 1) % (subdivisions * 2)
                 idx3 = (x * 2 + 2) % (subdivisions * 2)
                 idx4 = (x * 2 + 3) % (subdivisions * 2)
-                indices.extend([idx1, idx2, idx3, idx3, idx2, idx4])
 
+                # 内側の円の範囲制限
+                if inner_radius < outer_radius and inner_radius < radius:
+                    quad_points = [circle_points[idx] for idx in [idx1, idx2, idx3, idx3, idx2, idx4]]
+                    triangle_points.extend(quad_points)
+                       
+                # 外側の円の範囲制限 
+                if outer_radius < radius:         
+                    quad_points2 = [circle_points2[idx] for idx in [idx1, idx2, idx3, idx3, idx2, idx4]]
+                    triangle_points2.extend(quad_points2)
+                    
             # 3角形の座標のアレイ
-            triangle_points = om2.MPointArray()
-            for x in indices:
-                triangle_points.append(vertices[x])
-            triangle_points_values.append(triangle_points)
+            inner_triangles_values.append(om2.MPointArray(triangle_points))
+            outer_triangles_values.append(om2.MPointArray(triangle_points2))
                 
-        # 子供の円まで三角形を描画
-        child_triangle_vertices = []
-        connect_color = []
-        temp_points = []
+        # 親子を繋げる三角形の描画
+        parent_triangle_points = []
+        parent_triangle_colors = []
         for i in list(range(draw_circle_list_plug.numElements())):
             num_plug = draw_circle_list_plug.elementByPhysicalIndex(i)
-            # 子供のインデックスを取得
+            # 親の円のインデックスを取得
             parent_index = num_plug.child(DrawTestNode.aParentIndex).asInt()
-            
-            # 親のインデックスがない場合
-            if parent_index not in draw_indices:
-                continue
-            # 自身のインデックスと同じ場合
-            if parent_index == i:
+            # 親のインデックスがない場合or自身のインデックスと同じ場合
+            if parent_index not in circle_indices or parent_index == i:
                 continue
             
-            parent_pos = om2.MVector(world_positions[parent_index])
-            child_pos = om2.MVector(world_positions[i])
-            parent_radius = outer_radiuses[parent_index]
-            child_radius = outer_radiuses[i]
+            parent_pos = om2.MVector(circle_center_points[parent_index])
+            child_pos = om2.MVector(circle_center_points[i])
+            parent_radius = circle_radius[parent_index]
+            child_radius = circle_radius[i]
 
-            # カメラの位置を取得
-            cam_matrix = cameraPath.inclusiveMatrix()
-            cam_position = om2.MVector(cam_matrix[12], cam_matrix[13], cam_matrix[14])  # カメラのワールド座標
-
-            # **修正: 法線をカメラ方向に向ける**
-            normal = cam_position - parent_pos
-            normal.normalize()
-
-            # **修正: Y 軸を基準に底辺の向きを求める**
-            up_vector = om2.MVector(0, 1, 0)  # **Y軸を維持**
-            right_vector = up_vector ^ normal  # **外積で底辺の向きを求める**
-            right_vector.normalize()
-
+            # 円同士の長さ
             vec = np.array(child_pos) - np.array(parent_pos)
-            length = np.linalg.norm(vec)  # ベクトルの長さ
+            length = np.linalg.norm(vec)
 
             if length > 0:
-                # 単位ベクトル化
-                unit_vec = vec / length
-                right_vec = np.cross(unit_vec, right_vector)
-                right_vec /= np.linalg.norm(right_vec)  # 正規化
+                # 親と子の円のベクトル
+                vec_center = child_pos - parent_pos
+                camera_vec = om2.MVector(camera_position)
+                
+                # 親の円のカメラ方向の2Dベクトル
+                vec_to_camera_parent = camera_vec - parent_pos
+                vec_to_camera_parent.normalize()
+                projected_vec_parent = vec_center - (vec_center * vec_to_camera_parent) * vec_to_camera_parent
+                projected_vec_parent.normalize()
+                
+                # 子供の円のカメラ方向の2Dベクトル
+                vec_to_camera_child = camera_vec - child_pos
+                vec_to_camera_child.normalize()
+                projected_vec_child = vec_center - (vec_center * vec_to_camera_child) * vec_to_camera_child
+                projected_vec_child.normalize()
 
-                point_1, point_2 = self._get_shortest_circle_contact_points(parent_pos, child_pos, parent_radius, child_radius, cam_position)
-                triangle_points = self.calculate_triangle_points(point_1, point_2, parent_radius, cam_position)
-                if triangle_points:
-                    base_left = om2.MPoint(triangle_points[0])
-                    base_right = om2.MPoint(triangle_points[1])
-                                        
-                    # **三角形の頂点座標**
-                    child_triangle_vertices.append(om2.MPointArray([point_2, base_left, base_right]))  # 上の頂点（2個目の円）
-                    connect_color.append(color_values[draw_indices.index(parent_index)])
-                    
-                    temp_points.append([om2.MPoint(point_1), om2.MPoint(point_2)])
+                # 円周上の接点を取得
+                contact_point_parent = parent_pos + projected_vec_parent * parent_radius
+                contact_point_child = child_pos - projected_vec_child * child_radius
+                
+                # 親と子の円の最短の円周上の点のベクトル
+                shortest_vec = contact_point_parent - contact_point_child
+                vec_length = np.linalg.norm(shortest_vec)
+                
+                # 接点が同じ位置にある場合スキップ
+                if vec_length == 0:
+                    continue
+
+                # 単位ベクトル化
+                V_unit = shortest_vec / vec_length
+
+                # カメラ方向のベクトル
+                to_camera = camera_vec - contact_point_parent
+                to_camera /= np.linalg.norm(to_camera)
+
+                # カメラ方向に最も近いベクトルを求める
+                base_direction = np.cross(V_unit, to_camera)
+                base_direction /= np.linalg.norm(base_direction)
+
+                # 三角形の底辺の中心点から両端の座標計算
+                triangle_base_point1 = contact_point_parent + base_direction * (parent_radius)
+                triangle_base_point2 = contact_point_parent - base_direction * (parent_radius)
+                # 三角形の座標とカラーを格納 
+                parent_triangle_points.append(om2.MPointArray([contact_point_child, triangle_base_point1, triangle_base_point2]))
+                parent_triangle_colors.append(color_inner_values[circle_indices.index(parent_index)])
             
         # データの格納
-        data.circle_colors          = color_values
-        data.circle_triangle_points = triangle_points_values
+        data.circle_inner_colors    = color_inner_values
+        data.circle_outer_colors    = color_outer_values
+        data.circle_inner_triangles = inner_triangles_values
+        data.circle_outer_triangles = outer_triangles_values
         data.text                   = text_values
         data.text_size              = text_size_values
         data.text_position          = text_position_values
         data.text_color             = text_color_values
-        data.parent_triangle_points = child_triangle_vertices     
-        data.parent_triangle_colors = connect_color
+        data.parent_triangle_points = parent_triangle_points
+        data.parent_triangle_colors = parent_triangle_colors
 
-        
         return data
 
-    def _get_shortest_circle_contact_points(self, position_source, position_target, radius_1, radius_2, camera_position):
-        """
-        カメラの奥行きを考慮せず、2つの円の最短の接点を取得する
-        """
-        # 円の中心を結ぶベクトル
-        vec_center = position_target - position_source
-
-        # カメラ方向のベクトル(ソース)
-        vec_to_camera_source = camera_position - position_source
-        vec_to_camera_source.normalize()
-
-        # カメラ方向のベクトル(ターゲット)
-        vec_to_camera_target = camera_position - position_target
-        vec_to_camera_target.normalize()
-
-        # カメラ方向を考慮して奥行きを排除した最短ベクトルを作成(ソース)
-        projected_vec_source = vec_center - (vec_center * vec_to_camera_source) * vec_to_camera_source
-        projected_vec_source.normalize()
-
-        # カメラ方向を考慮して奥行きを排除した最短ベクトルを作成(ターゲット)
-        projected_vec_target = vec_center - (vec_center * vec_to_camera_target) * vec_to_camera_target
-        projected_vec_target.normalize()
-
-        # 円周上の接点を取得
-        contact_point_1 = position_source + projected_vec_source * radius_1
-        contact_point_2 = position_target - projected_vec_target * radius_2
-
-        return contact_point_1, contact_point_2
-
-    def calculate_triangle_points(self, point_A, point_B, radius_A, camera_position):
-        """
-        円Aと円Bを結ぶ最短円周点から、カメラの方向に向けた三角形の底辺を計算する。
-
-        Parameters:
-            point_A (numpy.ndarray): 円Aの円周上の最短点 (x, y, z)
-            point_B (numpy.ndarray): 円Bの円周上の最短点 (x, y, z)
-            radius_A (float): 円Aの半径
-            camera_position (numpy.ndarray): カメラのワールド座標 (x, y, z)
-
-        Returns:
-            tuple: (底辺の左端, 底辺の右端)
-        """
-        # ベクトルV = B_s - A_s（Point A から Point B へのベクトル）
-        V = point_B - point_A
-        V_length = np.linalg.norm(V)
-        if V_length == 0:
-            return None  # 円が同じ位置にある場合は処理を終了
-
-        # 単位ベクトル化
-        V_unit = V / V_length
-
-        # カメラ方向のベクトル
-        to_camera = camera_position - point_A
-        to_camera /= np.linalg.norm(to_camera)  # 正規化
-
-        # `V_unit` に直交し、カメラ方向に最も近いベクトルを求める
-        base_direction = np.cross(V_unit, to_camera)
-        base_direction /= np.linalg.norm(base_direction)  # 単位ベクトル化
-
-        # 底辺の両端を求める（左右に円Aの半径分移動）
-        P1 = point_A + base_direction * radius_A  # 底辺の左端
-        P2 = point_A - base_direction * radius_A  # 底辺の右端
-
-        return P1, P2
-
     def addUIDrawables(self, objPath, drawManager, frameContext, data):
-        """
-        描画の実行。prepareForDrawで設定したデータをもとに描画を行う。
-        """
         if data is None:
             return
         
         if data.xray or int(frameContext.getDisplayStyle()) == omr2.MFrameContext.kXray+1:
-                drawManager.beginDrawInXray()
+            drawManager.beginDrawInXray()
         else:
             drawManager.beginDrawable()
 
-        # 円の描画
-        for i in list(range(len(data.circle_colors))):
-            drawManager.setColor(data.circle_colors[i])
-            drawManager.mesh(omr2.MUIDrawManager.kTriangles, data.circle_triangle_points[i])
+        # 内側の円の描画
+        for i in list(range(len(data.circle_inner_colors))):
+            drawManager.setColor(data.circle_inner_colors[i])
+            drawManager.mesh(omr2.MUIDrawManager.kTriangles, data.circle_inner_triangles[i])
         
-        # 親との描画
+        # 外側の円の描画
+        for i in list(range(len(data.circle_outer_colors))):
+            drawManager.setColor(data.circle_outer_colors[i])
+            drawManager.mesh(omr2.MUIDrawManager.kTriangles, data.circle_outer_triangles[i])
+        
+        # 親子関係の三角形の描画
         for i in list(range(len(data.parent_triangle_colors))):
             drawManager.setColor(data.parent_triangle_colors[i])
             drawManager.mesh(omr2.MUIDrawManager.kTriangles, data.parent_triangle_points[i])
@@ -572,9 +566,8 @@ class DrawTest(omr2.MPxDrawOverride):
             drawManager.setColor(data.text_color[i])
             drawManager.text(data.text_position[i], data.text[i], omr2.MUIDrawManager.kCenter)
 
-
         if data.xray or frameContext.getDisplayStyle() == omr2.MFrameContext.kXray+1:
-                drawManager.endDrawInXray()
+            drawManager.endDrawInXray()
         else:
             drawManager.endDrawable()
 
@@ -582,7 +575,7 @@ class DrawTest(omr2.MPxDrawOverride):
 # Plug-in initialization.
 # ----------------------------------------------------------------------------------
 def initializePlugin(mObject):
-    mPlugin = om2.MFnPlugin(mObject, "user_test", "1.0", "Any")
+    mPlugin = om2.MFnPlugin(mObject, "user", "1.0", "Any")
     try:
         mPlugin.registerNode(DrawTestNode.kPluginNodeName,
                              DrawTestNode.kPluginNodeId,
