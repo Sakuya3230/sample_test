@@ -1,5 +1,25 @@
 # -*- coding: utf-8 -*-
 
+"""
+#　選択したルート階層以下のジョイントに円を描画する
+sel = cmds.ls(sl=True, dag=True, l=True, typ="joint")
+draw_node = cmds.createNode("drawTest")
+
+attr_indices = {}
+for i, jnt in enumerate(sel):
+    cmds.connectAttr("{}.worldMatrix[0]".format(jnt),"{}.drawCircleList[{}].inputWorldMatrix".format(draw_node, i))
+    cmds.setAttr("{}.drawCircleList[{}].radius".format(draw_node, i), 1)
+    #cmds.setAttr("{}.drawCircleList[{}].outerColor".format(draw_node, i), 0.3, 0.3, 0.3, type="double3")
+    
+    parent = cmds.listRelatives(jnt, p=True, f=True, typ="joint")
+    if parent:
+        attr_index = attr_indices.get(parent[0])
+        if attr_index is not None:
+            cmds.setAttr("{}.drawCircleList[{}].parentIndex".format(draw_node, i), attr_index)
+    attr_indices[jnt] = i
+    cmds.connectAttr("{}.radius".format(jnt),"{}.drawCircleList[{}].radius".format(draw_node, i))
+"""
+
 import maya.api.OpenMaya as om2
 import maya.api.OpenMayaUI as omui2
 import maya.api.OpenMayaRender as omr2
