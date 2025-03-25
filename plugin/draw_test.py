@@ -1,25 +1,5 @@
 # -*- coding: utf-8 -*-
 
-"""
-#　選択したルート階層以下のジョイントに円を描画する
-sel = cmds.ls(sl=True, dag=True, l=True, typ="joint")
-draw_node = cmds.createNode("drawTest")
-
-attr_indices = {}
-for i, jnt in enumerate(sel):
-    cmds.connectAttr("{}.worldMatrix[0]".format(jnt),"{}.drawCircleList[{}].inputWorldMatrix".format(draw_node, i))
-    cmds.setAttr("{}.drawCircleList[{}].radius".format(draw_node, i), 1)
-    #cmds.setAttr("{}.drawCircleList[{}].outerColor".format(draw_node, i), 0.3, 0.3, 0.3, type="double3")
-    
-    parent = cmds.listRelatives(jnt, p=True, f=True, typ="joint")
-    if parent:
-        attr_index = attr_indices.get(parent[0])
-        if attr_index is not None:
-            cmds.setAttr("{}.drawCircleList[{}].parentIndex".format(draw_node, i), attr_index)
-    attr_indices[jnt] = i
-    cmds.connectAttr("{}.radius".format(jnt),"{}.drawCircleList[{}].radius".format(draw_node, i))
-"""
-
 import maya.api.OpenMaya as om2
 import maya.api.OpenMayaUI as omui2
 import maya.api.OpenMayaRender as omr2
@@ -329,6 +309,12 @@ class DrawTest(omr2.MPxDrawOverride):
         xray_value = fn_node.findPlug(DrawTestNode.aXray, False).asBool()
         data.xray = xray_value
         
+        # ワールドマトリックスの取得　＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+        locator_world_matrix_plug = fn_node.findPlug("worldMatrix", False)
+        locator_world_matrix_obj = locator_world_matrix_plug.elementByLogicalIndex(0).asMObject()
+        locator_world_matrix_data = om2.MFnMatrixData(locator_world_matrix_obj)
+        locator_world_matrix = locator_world_matrix_data.matrix()
+                
         # サークル描画配列
         draw_circle_list_plug = fn_node.findPlug(DrawTestNode.aDrawCircleList, False)
         # 親子関係用の値
@@ -408,8 +394,8 @@ class DrawTest(omr2.MPxDrawOverride):
             camera_matrix = cameraPath.inclusiveMatrix()
             camera_position = om2.MPoint(camera_matrix[12], camera_matrix[13], camera_matrix[14])
 
-            # カメラへの方向ベクトルを計算
-            to_camera = camera_position - position
+            # カメラへの方向ベクトルを計算　＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+            to_camera = camera_position - position * locator_world_matrix
             to_camera.normalize()
 
             # カメラ方向に向けるためのベクトル計算
@@ -426,6 +412,33 @@ class DrawTest(omr2.MPxDrawOverride):
                 forward_vector.x, forward_vector.y, forward_vector.z, 0,
                 0, 0, 0, 1
             ])
+            
+            # ワールドマトリックスのスケール成分を正規化　＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+            x_axis = om2.MVector(locator_world_matrix[0], locator_world_matrix[1], locator_world_matrix[2])
+            y_axis = om2.MVector(locator_world_matrix[4], locator_world_matrix[5], locator_world_matrix[6])
+            z_axis = om2.MVector(locator_world_matrix[8], locator_world_matrix[9], locator_world_matrix[10])
+
+            # スケール成分を取得
+            scale_x = x_axis.length()
+            scale_y = y_axis.length()
+            scale_z = z_axis.length()
+
+            # スケールを1に正規化
+            x_axis /= scale_x
+            y_axis /= scale_y
+            z_axis /= scale_z
+
+            # 位置成分を取得
+            translation = om2.MVector(locator_world_matrix[12], locator_world_matrix[13], locator_world_matrix[14])
+
+            # スケール除去後の行列を作成
+            locator_world_matrix2 = om2.MMatrix([
+                [x_axis.x, x_axis.y, x_axis.z, 0],
+                [y_axis.x, y_axis.y, y_axis.z, 0],
+                [z_axis.x, z_axis.y, z_axis.z, 0],
+                [translation.x, translation.y, translation.z, 1]
+            ])
+            rot_matrix *= locator_world_matrix2.inverse()
 
             # カメラの向きで円の頂点座標を取得
             circle_points = []
@@ -498,7 +511,8 @@ class DrawTest(omr2.MPxDrawOverride):
             if length > 0:
                 # 親と子の円のベクトル
                 vec_center = child_pos - parent_pos
-                camera_vec = om2.MVector(camera_position)
+                # 　＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+                camera_vec = om2.MVector(camera_position) * locator_world_matrix.inverse()
                 
                 # 親の円のカメラ方向の2Dベクトル
                 vec_to_camera_parent = camera_vec - parent_pos
